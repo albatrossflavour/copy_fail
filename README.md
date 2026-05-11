@@ -222,7 +222,7 @@ On RHEL/CentOS, edit `/etc/default/grub` and add it to `GRUB_CMDLINE_LINUX`, the
 
 On Ubuntu/Debian, edit `/etc/default/grub` and add it to `GRUB_CMDLINE_LINUX_DEFAULT`, then run `update-grub`.
 
-This module does not automate GRUB changes because getting boot configuration wrong can render a system unbootable. The fact will report `initcall_blacklisted: true` once the parameter is in place, and `reboot_required: true` until the reboot completes.
+This module does not automate GRUB changes because getting boot configuration wrong can render a system unbootable. You can manage your GRUB configuration with Puppet (for example, using `file_line` or an `augeas` resource to set kernel parameters), but doing so is out of scope for this module. The fact will report `initcall_blacklisted: true` once the parameter is in place, and `reboot_required: true` until the reboot completes.
 
 ## Limitations
 
