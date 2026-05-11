@@ -1,19 +1,23 @@
 # copy_fail
 
-Detect the [Copy Fail](https://nvd.nist.gov/vuln/detail/CVE-2026-31431) kernel vulnerability across your Linux fleet.
+Detect and mitigate the [Copy Fail](https://nvd.nist.gov/vuln/detail/CVE-2026-31431) kernel vulnerability across your Linux fleet.
 
 ## What is Copy Fail?
 
 Copy Fail ([CVE-2026-31431](https://nvd.nist.gov/vuln/detail/CVE-2026-31431)) is a Linux kernel vulnerability in the AF_ALG subsystem's AEAD interface. Attackers can exploit the `algif_aead` kernel module to achieve local privilege escalation. Unlike many kernel module vulnerabilities, `algif_aead` is compiled as a **built-in** module on most major distributions, which changes the mitigation approach significantly.
 
-The primary mitigation depends on how the module is compiled:
+The mitigation depends on how the module is compiled:
 
 - **Built-in** (most distros): Add `initcall_blacklist=algif_aead_init` to kernel boot parameters and reboot. The `install /bin/false` approach does not work for built-in modules.
 - **Loadable** (some custom kernels): Block via `install algif_aead /bin/false` in `/etc/modprobe.d/`, same as other module-blocking mitigations.
 
 ## What this module provides
 
-This module ships a structured fact (`copy_fail`) that reports vulnerability status, module type (built-in vs loadable), active mitigation state, and whether a reboot is needed. No code changes required, just deploy the module.
+This module ships three complementary tools:
+
+1. **A structured fact** (`copy_fail`) that reports vulnerability status, module type (built-in vs loadable), active mitigation state, and whether a reboot is needed. No code changes required, just deploy the module.
+2. **A Puppet class** (`copy_fail`) that persistently blocks `algif_aead` via an `install /bin/false` directive in `/etc/modprobe.d/copyfail.conf`. Only effective for loadable modules.
+3. **A task** (`copy_fail::unload`) that immediately unloads the module from a running kernel (loadable modules only).
 
 The fact is the primary tool. Deploy the module and you get fleet-wide visibility without touching a manifest.
 
@@ -79,8 +83,8 @@ The fact returns a hash with module detail and summary keys:
 
 The `type` field tells you which mitigation path applies:
 
-- **`builtin`**: The module is compiled into the kernel. `install /bin/false` in modprobe.d has no effect. Use `initcall_blacklist=algif_aead_init` as a kernel boot parameter instead.
-- **`loadable`**: The module is a `.ko` file loaded on demand. `install algif_aead /bin/false` in modprobe.d will prevent it from loading.
+- **`builtin`**: The module is compiled into the kernel. `install /bin/false` in modprobe.d has no effect. Use `initcall_blacklist=algif_aead_init` as a kernel boot parameter instead. This module cannot automate that change (see [Limitations](#limitations)).
+- **`loadable`**: The module is a `.ko` file loaded on demand. The `copy_fail` class and `install algif_aead /bin/false` in modprobe.d will prevent it from loading.
 - **`absent`**: The module does not exist on this system. The node is not vulnerable to this specific exploit.
 
 ### Querying the fact
@@ -137,25 +141,100 @@ Find nodes where the initcall blacklist is applied:
 puppet query 'facts[certname, value] { name = "copy_fail" and value.initcall_blacklisted = true }'
 ```
 
+## The copy_fail class (optional)
+
+The class manages `/etc/modprobe.d/copyfail.conf`. When `mitigate_algif_aead` is set to `true`, it writes an `install algif_aead /bin/false` directive that persistently prevents the module from loading on boot or via explicit `modprobe` calls.
+
+This only works for loadable modules. If your servers report `type: builtin`, the class will have no effect and you need `initcall_blacklist` on the kernel command line instead (see [Why type matters](#why-type-matters)).
+
+Only include this class when you need Puppet to enforce the block. The fact works independently.
+
+If you include the class with the parameter left at its default (`false`), the config file is still created but contains no `install` directive.
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mitigate_algif_aead` | `Boolean` | `false` | Block the `algif_aead` kernel module via `install /bin/false` |
+
+### Usage with Hiera
+
+```yaml
+copy_fail::mitigate_algif_aead: true
+```
+
+Then classify the node:
+
+```puppet
+include copy_fail
+```
+
+### Usage with resource-like declaration
+
+```puppet
+class { 'copy_fail':
+  mitigate_algif_aead => true,
+}
+```
+
+### Why install /bin/false instead of a blacklist directive?
+
+A `blacklist` directive only prevents autoloading. It does not block explicit `modprobe` calls. The `install ... /bin/false` approach ensures the module cannot be loaded by any mechanism, which is why this module uses it.
+
+## The unload task
+
+The `copy_fail::unload` task unloads the `algif_aead` module from the running kernel immediately, without waiting for a reboot.
+
+```shell
+puppet task run copy_fail::unload module=algif_aead --nodes servers
+```
+
+On success:
+
+```json
+{
+  "module": "algif_aead",
+  "status": "unloaded",
+  "message": "Successfully unloaded module 'algif_aead'"
+}
+```
+
+The task returns an error if the module is not currently loaded, is in use by another kernel subsystem, or is not in the allow-list. If a module is in use and cannot be unloaded, apply the block and reboot.
+
+This task only works for loadable modules. Built-in modules cannot be unloaded.
+
 ## What this module affects
 
-This module only reads system state. No files are written.
+- **Fact only (no class):** reads `/proc/modules`, `/sys/module/algif_aead`, `/proc/cmdline`, scans `/etc/modprobe.d/` files, and runs `modinfo`. No files are written.
+- **Class included:** creates and manages `/etc/modprobe.d/copyfail.conf` (owned by `root:root`, mode `0644`). The file is present whenever the class is included, even if the parameter is `false`.
+- **Task:** runs `modprobe -r` to unload the module from the running kernel.
 
-- Reads `/proc/modules` for loaded module state
-- Reads `/sys/module/algif_aead` for built-in module active state
-- Scans `/etc/modprobe.d/` files for `install /bin/false` directives
-- Reads `/proc/cmdline` for `initcall_blacklist` boot parameters
-- Runs `modinfo algif_aead` to determine module type
+## Mitigating built-in modules
+
+When `algif_aead` is compiled into the kernel (which is the common case on stock distribution kernels), the modprobe.d approach has no effect. The module's init function runs at boot before modprobe is involved.
+
+To mitigate a built-in `algif_aead`:
+
+1. Add `initcall_blacklist=algif_aead_init` to your kernel boot parameters (typically via GRUB configuration)
+2. Reboot the server
+
+On RHEL/CentOS, edit `/etc/default/grub` and add it to `GRUB_CMDLINE_LINUX`, then run `grub2-mkconfig -o /boot/grub2/grub.cfg`.
+
+On Ubuntu/Debian, edit `/etc/default/grub` and add it to `GRUB_CMDLINE_LINUX_DEFAULT`, then run `update-grub`.
+
+This module does not automate GRUB changes because getting boot configuration wrong can render a system unbootable. The fact will report `initcall_blacklisted: true` once the parameter is in place, and `reboot_required: true` until the reboot completes.
 
 ## Limitations
 
-- **Linux only.** The fact is confined to nodes where `kernel == 'Linux'`.
-- **Detection only.** This version does not include a class to manage mitigations. Mitigation management (GRUB boot parameters for built-in modules, modprobe.d for loadable modules) is planned for a future release.
+- **Linux only.** The fact is confined to nodes where `kernel == 'Linux'`. The class and task assume Linux kernel module tooling.
+- **Loadable modules only for class and task.** The class writes `modprobe.d` configuration that only affects loadable modules. Built-in modules require `initcall_blacklist` on the kernel command line, which this module does not manage (see [Mitigating built-in modules](#mitigating-built-in-modules)).
+- **Blocking does not unload live modules.** The class writes `modprobe.d` configuration that takes effect on next boot or next `modprobe` call. Use the task or a reboot to remove already-loaded modules.
 - **No kernel version detection.** The module reports module state regardless of kernel version. If you need kernel-version-aware logic, handle that in your classification or Hiera hierarchy.
+- **Module in use.** The task cannot unload a module that is in use by another kernel subsystem. Apply the block and reboot in that case.
 
 ## Reference
 
-Full reference documentation is available in [REFERENCE.md](REFERENCE.md), generated from inline Puppet Strings comments.
+Full reference documentation for classes and tasks is available in [REFERENCE.md](REFERENCE.md), generated from inline Puppet Strings comments.
 
 ## Development
 
@@ -177,4 +256,10 @@ Run a specific test file:
 
 ```shell
 pdk test unit --tests spec/unit/facter/copy_fail_spec.rb
+```
+
+Generate REFERENCE.md:
+
+```shell
+pdk bundle exec puppet strings generate --format markdown
 ```

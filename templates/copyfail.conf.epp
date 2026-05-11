@@ -1,0 +1,5 @@
+<%- | Boolean $mitigate_algif_aead | -%>
+# Managed by Puppet - copy_fail module
+<% if $mitigate_algif_aead { -%>
+install algif_aead /bin/false
+<% } -%>

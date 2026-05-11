@@ -1,0 +1,10 @@
+{
+  "description": "Unload the algif_aead kernel module",
+  "input_method": "environment",
+  "parameters": {
+    "module": {
+      "description": "The kernel module to unload",
+      "type": "Enum['algif_aead']"
+    }
+  }
+}
