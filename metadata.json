@@ -1,6 +1,6 @@
 {
   "name": "albatrossflavour-copy_fail",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "author": "albatrossflavour",
   "summary": "Detect and mitigate the Copy Fail kernel vulnerability (CVE-2026-31431)",
   "license": "Apache-2.0",
