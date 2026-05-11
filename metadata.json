@@ -1,0 +1,58 @@
+{
+  "name": "albatrossflavour-copy_fail",
+  "version": "0.1.0",
+  "author": "albatrossflavour",
+  "summary": "Detect the Copy Fail kernel vulnerability (CVE-2026-31431)",
+  "license": "Apache-2.0",
+  "source": "https://github.com/albatrossflavour/copy_fail",
+  "project_page": "https://github.com/albatrossflavour/copy_fail",
+  "issues_url": "https://github.com/albatrossflavour/copy_fail/issues",
+  "dependencies": [],
+  "operatingsystem_support": [
+    {
+      "operatingsystem": "RedHat",
+      "operatingsystemrelease": [
+        "7",
+        "8",
+        "9"
+      ]
+    },
+    {
+      "operatingsystem": "CentOS",
+      "operatingsystemrelease": [
+        "7",
+        "8"
+      ]
+    },
+    {
+      "operatingsystem": "Ubuntu",
+      "operatingsystemrelease": [
+        "20.04",
+        "22.04",
+        "24.04"
+      ]
+    },
+    {
+      "operatingsystem": "Debian",
+      "operatingsystemrelease": [
+        "11",
+        "12"
+      ]
+    },
+    {
+      "operatingsystem": "SLES",
+      "operatingsystemrelease": [
+        "15"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "name": "puppet",
+      "version_requirement": ">= 7.0.0 < 9.0.0"
+    }
+  ],
+  "pdk-version": "3.4.0",
+  "template-url": "pdk-default#3.4.0",
+  "template-ref": "tags/3.4.0-0-gd3cc13f"
+}
